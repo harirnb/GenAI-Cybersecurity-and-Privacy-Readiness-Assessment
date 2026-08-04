@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GenAI Readiness Assessment — Prototype Skeleton</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  .note { background: #fff8e1; border: 1px solid #e0c96a; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.5rem; font-size: 0.9rem; }
+  fieldset { border: 1px solid #ccc; border-radius: 8px; margin-bottom: 1rem; padding: 1rem; }
+  legend { font-weight: 600; padding: 0 0.5rem; }
+  .question { margin-bottom: 1rem; }
+  .question label { display: block; margin-bottom: 0.25rem; font-size: 0.95rem; }
+  .controls { display: flex; gap: 1rem; flex-wrap: wrap; }
+  select { padding: 0.3rem; }
+  button { margin-top: 1.5rem; padding: 0.6rem 1.2rem; font-size: 1rem; cursor: pointer; }
+  #report { margin-top: 2rem; padding: 1rem; border: 2px solid #333; border-radius: 8px; display: none; }
+  .band { font-size: 1.3rem; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  th, td { text-align: left; border-bottom: 1px solid #ddd; padding: 0.4rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>GenAI Cybersecurity &amp; Privacy Readiness Assessment — Prototype</h1>
+
+<div class="note">
+  <strong>Skeleton status:</strong> this is a Part A structural prototype implementing the scoring logic described in the proposal
+  (evidence caps, critical control gates, domain weights, maturity bands). Only a sample of questions per domain
+  is included below — the full 30-question control library and source citations still need to be added in Part B.
+  Runs entirely client-side; nothing is uploaded or stored.
+</div>
+
+<form id="assessment-form"></form>
+<button id="submit-btn" type="button">Calculate readiness</button>
+
+<div id="report"></div>
+
+<script>
+// ---- Domain definitions (weights per proposal §8) ----
+const domains = [
+  {
+    id: "governance",
+    name: "Governance and accountability",
+    weight: 0.20,
+    critical: true, // has a critical control in this domain
+    questions: [
+      { id: "g1", text: "Is there a named, accountable owner for GenAI risk?", critical: true },
+      { id: "g2", text: "Is GenAI use covered by an approved acceptable-use policy?", critical: false }
+    ]
+  },
+  {
+    id: "inventory",
+    name: "AI inventory and use case control",
+    weight: 0.15,
+    questions: [
+      { id: "i1", text: "Is there a maintained inventory of GenAI tools and accounts in use?", critical: true },
+      { id: "i2", text: "Are new GenAI use cases reviewed before approval?", critical: false }
+    ]
+  },
+  {
+    id: "privacy",
+    name: "Privacy and data handling",
+    weight: 0.20,
+    questions: [
+      { id: "p1", text: "Is data classification applied before information is used in a GenAI tool?", critical: true },
+      { id: "p2", text: "Are retention and deletion practices for AI-processed data documented?", critical: false }
+    ]
+  },
+  {
+    id: "cyber",
+    name: "Cybersecurity safeguards",
+    weight: 0.20,
+    questions: [
+      { id: "c1", text: "Are least-privilege and identity controls applied to connected AI tools?", critical: false },
+      { id: "c2", text: "Is generated output reviewed before use in production systems?", critical: false }
+    ]
+  },
+  {
+    id: "people",
+    name: "People, policy and human oversight",
+    weight: 0.10,
+    questions: [
+      { id: "pe1", text: "Do staff receive role-based training on safe GenAI use?", critical: true },
+      { id: "pe2", text: "Are approved alternative tools available so staff aren't forced into shadow AI use?", critical: false }
+    ]
+  },
+  {
+    id: "thirdparty",
+    name: "Third parties, monitoring and incident response",
+    weight: 0.15,
+    questions: [
+      { id: "t1", text: "Are GenAI suppliers reviewed before approval?", critical: true },
+      { id: "t2", text: "Is there an incident response process covering AI-related incidents?", critical: true }
+    ]
+  }
+];
+
+// ---- Build the form ----
+const form = document.getElementById("assessment-form");
+domains.forEach(domain => {
+  const fs = document.createElement("fieldset");
+  const legend = document.createElement("legend");
+  legend.textContent = `${domain.name} (weight ${Math.round(domain.weight * 100)}%)`;
+  fs.appendChild(legend);
+
+  domain.questions.forEach(q => {
+    const div = document.createElement("div");
+    div.className = "question";
+    div.innerHTML = `
+      <label>${q.text}${q.critical ? " ⚠ (critical control)" : ""}</label>
+      <div class="controls">
+        <label>Score
+          <select id="${q.id}_score">
+            <option value="0">0 — doesn't exist</option>
+            <option value="1">1 — planned/informal</option>
+            <option value="2">2 — partly implemented</option>
+            <option value="3">3 — documented and operating</option>
+            <option value="4">4 — measured and improved</option>
+          </select>
+        </label>
+        <label>Evidence
+          <select id="${q.id}_evidence">
+            <option value="none">None</option>
+            <option value="partial">Partial</option>
+            <option value="verified">Verified</option>
+          </select>
+        </label>
+      </div>
+    `;
+    fs.appendChild(div);
+  });
+
+  form.appendChild(fs);
+});
+
+// ---- Scoring logic ----
+function evidenceCap(evidence) {
+  if (evidence === "none") return 1;
+  if (evidence === "partial") return 3;
+  return 4; // verified
+}
+
+function calculate() {
+  let weightedTotal = 0;
+  let criticalGateFail2 = false; // any critical control below 2
+  let criticalGateFail3 = false; // any critical control below 3
+  const domainResults = [];
+  const weakest = [];
+
+  domains.forEach(domain => {
+    let domainScoreSum = 0;
+    domain.questions.forEach(q => {
+      const rawScore = parseInt(document.getElementById(`${q.id}_score`).value, 10);
+      const evidence = document.getElementById(`${q.id}_evidence`).value;
+      const cap = evidenceCap(evidence);
+      const effectiveScore = Math.min(rawScore, cap);
+      domainScoreSum += effectiveScore;
+
+      if (q.critical) {
+        if (effectiveScore < 2) criticalGateFail2 = true;
+        if (effectiveScore < 3) criticalGateFail3 = true;
+      }
+    });
+    const domainAvg = domainScoreSum / domain.questions.length; // 0-4 scale
+    const domainPct = (domainAvg / 4) * 100;
+    weightedTotal += domainPct * domain.weight;
+    domainResults.push({ name: domain.name, pct: domainPct.toFixed(1) });
+    if (domainPct < 50) weakest.push(domain.name);
+  });
+
+  let band = "Ad hoc";
+  if (weightedTotal >= 75) band = "Optimised";
+  else if (weightedTotal >= 50) band = "Managed";
+  else if (weightedTotal >= 25) band = "Basic";
+
+  // Critical gates override numeric band
+  if (band === "Optimised" && criticalGateFail3) band = "Managed (capped — critical control below 3)";
+  if ((band === "Managed" || band.startsWith("Managed")) && criticalGateFail2) band = "Basic (capped — critical control below 2)";
+
+  return { weightedTotal: weightedTotal.toFixed(1), band, domainResults, weakest };
+}
+
+document.getElementById("submit-btn").addEventListener("click", () => {
+  const result = calculate();
+  const reportDiv = document.getElementById("report");
+  reportDiv.style.display = "block";
+  reportDiv.innerHTML = `
+    <h2>Readiness Report</h2>
+    <p>Overall score: <strong>${result.weightedTotal}/100</strong></p>
+    <p class="band">Maturity level: ${result.band}</p>
+    <table>
+      <tr><th>Domain</th><th>Score</th></tr>
+      ${result.domainResults.map(d => `<tr><td>${d.name}</td><td>${d.pct}%</td></tr>`).join("")}
+    </table>
+    <p><strong>Weakest areas:</strong> ${result.weakest.length ? result.weakest.join(", ") : "None below 50%"}</p>
+    <p style="font-size:0.85rem;color:#666;">Recommendation generation (owner-tagged priority actions) is not yet implemented in this skeleton — planned for Part B.</p>
+  `;
+});
+</script>
+
+</body>
+</html>
